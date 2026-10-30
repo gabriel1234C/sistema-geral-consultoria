@@ -20,9 +20,10 @@ LTV_PRICE = 0.7
 LTV_COMERCIAL = 0.7
 TETO_SFH = 1_500_000
 TETO_PROCOTISTA = 500_000
-RENDA_MCMV_MAX = 13000
+RENDA_MCMV_MAX = 12000
 RENDA_FGTS_FUTURO = 2640
-TAXA_PROCOTISTA = 8.66
+TAXA_PROCOTISTA = 8.6
+TAXA_ADMINISTRACAO = 25
 IOF_FATOR = 0.0038 + 0.000082 * 365
 
 TipoImovel = Literal["apartamento", "casa_condominio", "casa_rua", "comercial", "terreno"]
@@ -231,6 +232,8 @@ class Intake:
     sistema_preferido: str = "ambos"
     prazo_anos: int = 30
     taxa_manual: float | None = None
+    indexador: str = "TR"
+    ja_beneficiado: bool = False
     fluxo_sistema: str = "SAC"
     fluxo_valor_unidade: float | None = None
     fluxo_financiamento: float | None = None
@@ -325,11 +328,11 @@ def prazo_maximo_por_idade(idade: float) -> int:
 def faixa_mcmv(renda: float) -> int | None:
     if renda <= 0:
         return None
-    if renda <= 3200:
+    if renda <= 2640:
         return 1
-    if renda <= 5000:
+    if renda <= 3500:
         return 2
-    if renda <= 9600:
+    if renda <= 8600:
         return 3
     if renda <= RENDA_MCMV_MAX:
         return 4
@@ -361,9 +364,10 @@ def subsidio_mcmv(renda: float, faixa: int | None, dependentes: int) -> float:
     else:
         t = _clamp((renda - 3200) / 1800, 0, 1)
         base = 32000 * (1 - t)
-    extra = min(max(0, dependentes), 3) * 1500
+    extra = base if dependentes > 0 else 0
+    dobrado = base * 2 if extra > 0 else base
     teto = 55000 if faixa == 1 else 32000
-    return round2(min(teto, max(0, base + extra)))
+    return round2(min(teto, max(0, dobrado)))
 
 
 def taxa_mcmv(faixa: int, renda: float, uf: str, cotista: bool) -> float:
@@ -373,11 +377,7 @@ def taxa_mcmv(faixa: int, renda: float, uf: str, cotista: bool) -> float:
             return 4.0 if cotista else 4.5
         return 4.25 if cotista else 5.0
     if faixa == 2:
-        t = _clamp((renda - 3200) / 1800, 0, 1)
-        base = 4.75 + t * 2.25
-        regional = -0.25 if nn else 0
-        extra = 0 if cotista else 0.5
-        return round2(base + regional + extra)
+        return round2(4.75 if cotista else 5.25)
     if faixa == 3:
         return 7.66 if cotista else 8.16
     return 10.0 if cotista else 10.5
@@ -396,6 +396,21 @@ def taxa_sbpe(tipo: str, objetivo: str, relacionamento: bool, acima_sfh: bool) -
     if relacionamento:
         base -= 0.5
     return round2(base)
+
+
+def ltv_operacao(tipo: str, linha: str | None, faixa: int | None, objetivo: str, uf: str, sistema: str) -> float:
+    if tipo == "comercial":
+        return LTV_COMERCIAL if sistema == "SAC" else 0
+    if linha == "PROCOTISTA":
+        return LTV_SAC
+    if linha == "MCMV":
+        regiao = REGIAO.get(uf, "")
+        if objetivo == "usado" and faixa in (3, 4) and regiao in ("S", "SE"):
+            return 0.65 if faixa == 3 else 0.6
+        return LTV_SAC
+    if sistema == "PRICE":
+        return LTV_PRICE
+    return LTV_SAC
 
 
 def _montar_sistema(valor_base, ltv, entrada, fgts, subsidio) -> Condicao:
@@ -446,7 +461,7 @@ def avaliar(intake: Intake, hoje: date | None = None) -> Enquadramento:
     terreno = intake.tipo_imovel == "terreno"
     idade = idade_anos(intake.nascimento, hoje)
     prazo_idade = prazo_maximo_por_idade(idade)
-    prazo_tipo = PRAZO_SFI_ANOS if (comercial or terreno) else PRAZO_MAX_ANOS
+    prazo_tipo = PRAZO_SFI_ANOS if (comercial or terreno) else (30 if intake.indexador == "fixa" else PRAZO_MAX_ANOS)
     prazo_max = min(prazo_idade, prazo_tipo)
     prazo_efetivo = min(max(1, int(round(intake.prazo_anos or 1))), max(0, prazo_max))
     avaliacao = intake.valor_avaliacao if intake.valor_avaliacao > 0 else intake.valor_imovel
@@ -510,7 +525,7 @@ def avaliar(intake: Intake, hoje: date | None = None) -> Enquadramento:
     if intake.imovel_na_regiao:
         mcmv_reasons.append("Imóvel residencial na mesma região impede o MCMV.")
     if not faixa:
-        mcmv_reasons.append("Renda familiar acima de R$ 13.000 fica fora do MCMV.")
+        mcmv_reasons.append("Renda familiar acima de R$ 12.000 fica fora do MCMV.")
     if faixa and teto and valor_base > teto:
         mcmv_reasons.append(f"Valor do imóvel ({brl(valor_base)}) supera o teto da faixa ({brl(teto)}).")
     mcmv_possivel = len(mcmv_reasons) == 0 and faixa is not None
@@ -559,17 +574,27 @@ def avaliar(intake: Intake, hoje: date | None = None) -> Enquadramento:
     elif mcmv_possivel and faixa and faixa <= 3:
         linha, linha_motivo = "MCMV", "Melhor enquadramento: Minha Casa, Minha Vida."
     elif procotista_ok:
-        linha, linha_motivo = "PROCOTISTA", "Melhor enquadramento: Pró-Cotista a 8,66% a.a."
+        linha, linha_motivo = "PROCOTISTA", "Melhor enquadramento: Pró-Cotista a 8,6% a.a."
     elif mcmv_possivel:
         linha, linha_motivo = "MCMV", "Melhor enquadramento automático: Minha Casa, Minha Vida."
     else:
         linha = "SBPE"
         linha_motivo = f"SBPE — {mcmv_motivo}" if mcmv_motivo else "SBPE — linha de mercado da Caixa."
 
-    subsidio = subsidio_mcmv(renda_fam, faixa, intake.dependentes) if linha == "MCMV" and faixa in (1, 2) else 0
-    if subsidio > 0:
-        push("info", "subsidio", "Subsídio estimado na entrada",
-             f"Faixa {faixa}: cerca de {brl(subsidio)}. O valor final sai na análise da Caixa.")
+    subsidio_bruto = subsidio_mcmv(renda_fam, faixa, intake.dependentes) if linha == "MCMV" and faixa in (1, 2) else 0
+    subsidio = round2(subsidio_bruto * 0.5) if intake.objetivo == "usado" else subsidio_bruto
+    if intake.ja_beneficiado:
+        if linha == "MCMV":
+            push("alerta", "ja-beneficiado", "Sem subsídio novo",
+                 "Quem já usou o subsídio do Minha Casa, Minha Vida não recebe outro. A taxa da Caixa fica acima da tabela.")
+        subsidio = 0
+    elif subsidio > 0:
+        detalhe = (
+            f"Faixa {faixa}: cerca de {brl(subsidio)} (metade do imóvel novo)."
+            if intake.objetivo == "usado"
+            else f"Faixa {faixa}: cerca de {brl(subsidio)}. Um dependente dobra a base, até o teto da faixa."
+        )
+        push("info", "subsidio", "Subsídio estimado na entrada", detalhe)
 
     if intake.taxa_manual is not None:
         taxa = round2(max(0, intake.taxa_manual))
@@ -578,7 +603,7 @@ def avaliar(intake: Intake, hoje: date | None = None) -> Enquadramento:
     elif linha == "PROCOTISTA":
         taxa = TAXA_PROCOTISTA
         taxa_fonte = "tabela"
-        taxa_detalhe = "Pró-Cotista · 8,66% a.a."
+        taxa_detalhe = "Pró-Cotista 2025 · 8,6% a.a. nominal. Cota de 80% no SAC e no PRICE."
     elif linha == "MCMV" and faixa:
         taxa = taxa_mcmv(faixa, renda_fam, intake.uf, cotista)
         taxa_fonte = "tabela"
@@ -589,11 +614,12 @@ def avaliar(intake: Intake, hoje: date | None = None) -> Enquadramento:
         taxa_detalhe = "Tabela SBPE."
 
     fgts_disp = max(0, intake.saldo_fgts) if intake.usar_fgts and fgts_ok else 0
-    ltv_sac = LTV_COMERCIAL if comercial else LTV_SAC
+    ltv_sac = ltv_operacao(intake.tipo_imovel, linha, faixa, intake.objetivo, intake.uf, "SAC")
+    ltv_price = ltv_operacao(intake.tipo_imovel, linha, faixa, intake.objetivo, intake.uf, "PRICE")
     price_ok = not comercial
     sac = _montar_sistema(valor_base, ltv_sac, max(0, intake.entrada), fgts_disp, subsidio)
     price = (
-        _montar_sistema(valor_base, LTV_PRICE, max(0, intake.entrada), fgts_disp, subsidio)
+        _montar_sistema(valor_base, ltv_price, max(0, intake.entrada), fgts_disp, subsidio)
         if price_ok
         else Condicao(0, 0, round2(valor_base), 0, 0, 0, False)
     )
@@ -617,7 +643,7 @@ def avaliar(intake: Intake, hoje: date | None = None) -> Enquadramento:
              f"O SAC financia até {round(ltv_sac * 100)}% ({brl(sac.max_financiado)}).")
     if price_ok and not price.cobertura_ok:
         push("alerta", "entrada-price", "Entrada insuficiente no PRICE",
-             f"O PRICE financia até 70% ({brl(price.max_financiado)}).")
+             f"O PRICE financia até {round(ltv_price * 100)}% ({brl(price.max_financiado)}).")
 
     bloqueios = [m for m in msgs if m.nivel == "bloqueio"]
     pode = len(bloqueios) == 0 and valor_base > 0 and prazo_efetivo >= 1 and (sac.cobertura_ok or price.cobertura_ok)
@@ -670,8 +696,8 @@ def _primeira(sistema, valor, taxa, prazo) -> float:
     if valor <= 0 or prazo < 1:
         return 0
     if sistema == "SAC":
-        return valor / prazo + valor * taxa
-    return price_pmt(valor, taxa, prazo)
+        return valor / prazo + valor * taxa + TAXA_ADMINISTRACAO
+    return price_pmt(valor, taxa, prazo) + TAXA_ADMINISTRACAO
 
 
 def _reservar_ppp(sistema, enq: Enquadramento, intake: Intake, taxa, prazo):
@@ -712,15 +738,15 @@ def simular_cronograma(sistema, valor, taxa, prazo, reserva_ppp, aporte, modo24,
         juros = saldo * taxa
         if sistema == "SAC":
             amort = min(saldo, amort_fixa)
-            prest = amort + juros
+            prest = amort + juros + TAXA_ADMINISTRACAO
         else:
             falta = saldo + juros
             if falta <= prestacao_fixa + 0.01:
                 amort = saldo
-                prest = falta
+                prest = falta + TAXA_ADMINISTRACAO
             else:
                 amort = max(0, prestacao_fixa - juros)
-                prest = amort + juros
+                prest = amort + juros + TAXA_ADMINISTRACAO
         fgts_ppp = min(reserva, prest)
         reserva -= fgts_ppp
         saldo = max(0, saldo - amort)
@@ -801,26 +827,28 @@ def _resumir(rows, valor_fin, ltv, ok):
 
 def simular(intake: Intake, enq: Enquadramento) -> dict:
     prazo = max(1, int(round(enq.prazo_efetivo_anos * 12)))
+    teto_price = 20 if intake.indexador == "fixa" else 30
+    prazo_price = min(prazo, teto_price * 12)
     taxa_m = enq.taxa_anual / 100 / 12
     ppp_sac = _reservar_ppp("SAC", enq, intake, taxa_m, prazo)
-    ppp_price = _reservar_ppp("PRICE", enq, intake, taxa_m, prazo)
+    ppp_price = _reservar_ppp("PRICE", enq, intake, taxa_m, prazo_price)
     enq.sac, enq.price = ppp_sac[0], ppp_price[0]
     modo24 = intake.modo_fgts_24 if enq.fgts_elegivel else "nenhum"
     aporte = intake.aporte_mensal_fgts if enq.fgts_elegivel and modo24 != "nenhum" else 0
     propria = intake.amort_propria_mensal if intake.modo_amort_propria != "nenhum" else 0
     valor_imovel = enq.valor_base
 
-    def rows(sistema, cond, reserva):
+    def rows(sistema, cond, reserva, prazo_usar):
         if not (cond.cobertura_ok and cond.valor_financiado > 0):
             return []
         return simular_cronograma(
-            sistema, cond.valor_financiado, taxa_m, prazo, reserva, aporte, modo24,
+            sistema, cond.valor_financiado, taxa_m, prazo_usar, reserva, aporte, modo24,
             enq.fgts_futuro_mensal, propria, intake.modo_amort_propria,
             intake.valorizacao_anual, valor_imovel,
         )
 
-    sac = _resumir(rows("SAC", enq.sac, ppp_sac[1]), enq.sac.valor_financiado, enq.sac.ltv_max, enq.sac.cobertura_ok)
-    price = _resumir(rows("PRICE", enq.price, ppp_price[1]), enq.price.valor_financiado, enq.price.ltv_max, enq.price.cobertura_ok)
+    sac = _resumir(rows("SAC", enq.sac, ppp_sac[1], prazo), enq.sac.valor_financiado, enq.sac.ltv_max, enq.sac.cobertura_ok)
+    price = _resumir(rows("PRICE", enq.price, ppp_price[1], prazo_price), enq.price.valor_financiado, enq.price.ltv_max, enq.price.cobertura_ok)
     bloqueios = [m for m in enq.mensagens if m.nivel == "bloqueio"]
     enq.pode_simular = len(bloqueios) == 0 and enq.valor_base > 0 and enq.prazo_efetivo_anos >= 1 and (enq.sac.cobertura_ok or enq.price.cobertura_ok)
     return {
@@ -877,6 +905,11 @@ def calcular_fluxo(opts: dict) -> dict:
     parcela = round2(restante / divisor) if divisor else 0
     ultima = round2(restante - parcela * (divisor - 1)) if divisor else 0
     npos = max(0, pos)
+    taxa_obra = max(0, float(opts.get("taxa_obra") or 0))
+    juros_obra = 0.0
+    if obra > 0 and taxa_obra > 0 and fin > 0:
+        juros_obra = round2(sum(fin * (m / obra) * taxa_obra for m in range(1, obra + 1)))
+    juros_medio = round2(juros_obra / obra) if obra else 0
     por_ano: dict[int, dict] = {}
 
     def ano(year):
@@ -932,6 +965,9 @@ def calcular_fluxo(opts: dict) -> dict:
         "parcela_ultima": ultima,
         "parcela_caixa": caixa,
         "parcela_morando": round2(parcela + caixa),
+        "juros_obra": juros_obra,
+        "juros_obra_medio": juros_medio,
+        "taxa_obra": taxa_obra,
         "manuais": manuais,
         "anos": anos,
         "alerta": alerta,
@@ -948,6 +984,9 @@ def montar_fluxo(sim: dict, inicio: date | None = None) -> dict:
     cond = enq.sac if sistema == "SAC" else enq.price
     resumo = sim["sac"] if sistema == "SAC" else sim["price"]
     slots = manuais_no_prazo(inicio, intake.fluxo_meses_obra)
+    taxa_obra = 0.0028 if enq.linha in ("MCMV", "PROCOTISTA") else 0.0043
+    if intake.fluxo_meses_obra <= 0:
+        taxa_obra = 0
     manuais = []
     for slot in slots:
         manuais.append({**slot, "valor": float(intake.fluxo_manuais.get(str(slot["ano"]), intake.fluxo_manuais.get(slot["ano"], 0) or 0))})
@@ -963,6 +1002,7 @@ def montar_fluxo(sim: dict, inicio: date | None = None) -> dict:
         "manuais": manuais,
         "parcela_caixa": intake.fluxo_parcela_caixa if intake.fluxo_parcela_caixa is not None else resumo["primeira"],
         "inicio": inicio,
+        "taxa_obra": taxa_obra,
     })
 
 
@@ -1005,6 +1045,13 @@ def texto_proposta(sim: dict, fluxo: dict) -> str:
         f"Entrada a diluir: {brl(fluxo['fluxo_entrada'])}.",
         f"Ato {brl(fluxo['ato'])}. Obra: {fluxo['meses_obra']} meses de {brl(fluxo['parcela_mensal'])}.",
         f"Pós-chaves: {fluxo['meses_pos']} meses. Morando: {brl(fluxo['parcela_morando'])} (entrada + Caixa {brl(fluxo['parcela_caixa'])}).",
+    ]
+    if fluxo.get("juros_obra", 0) > 0:
+        linhas.append(
+            f"Juros de obra estimados na planta: {brl(fluxo['juros_obra'])} no total, média {brl(fluxo['juros_obra_medio'])} por mês. Não somam na parcela da construtora."
+        )
+    linhas += [
+        "A parcela do banco já inclui R$ 25 de taxa de administração. MIP e DFI não entram nesta conta.",
         "",
         "Simulação prévia, sujeita à análise de crédito e à avaliação da Caixa. Não é carta de crédito.",
         "O PDF foi baixado neste aparelho. Anexe o arquivo nesta conversa.",

@@ -158,6 +158,13 @@ with c7:
             "sbpe": "SBPE",
         }[x],
     )
+indexador = st.radio(
+    "Correção do contrato",
+    ["TR", "fixa"],
+    horizontal=True,
+    format_func=lambda x: "TR (SAC até 35 anos, PRICE até 30)" if x == "TR" else "Taxa fixa (SAC até 30, PRICE até 20)",
+)
+ja_benef = st.checkbox("Já usou o subsídio do Minha Casa, Minha Vida", value=False)
 
 with st.expander("Regras do cliente e FGTS"):
     g1, g2, g3 = st.columns(3)
@@ -213,6 +220,8 @@ intake = Intake(
     valorizacao_anual=float(valoriza),
     linha_preferida=linha,
     prazo_anos=int(prazo),
+    indexador=indexador,
+    ja_beneficiado=ja_benef,
 )
 
 enq = avaliar(intake)
@@ -228,6 +237,7 @@ m2.metric("Taxa", pct(enq.taxa_anual) + " a.a.")
 m3.metric("Prazo", f"{enq.prazo_efetivo_anos} anos")
 m4.metric("Sistema", enq.sistema_habitacional)
 st.caption(enq.linha_motivo + " " + enq.taxa_detalhe)
+st.caption("Cada parcela já inclui R$ 25 de taxa de administração. MIP e DFI não entram — a alíquota sai no contrato da Caixa.")
 
 s1, s2 = st.columns(2)
 with s1:
@@ -348,6 +358,13 @@ st.write(
     f"Ato {brl(fluxo['ato'])}. Manuais {brl(fluxo['soma_manuais'])}. "
     f"A parcela da Caixa ({brl(fluxo['parcela_caixa'])}) só entra depois das chaves."
 )
+if fluxo.get("juros_obra", 0) > 0:
+    st.info(
+        f"Juros de obra estimados, só enquanto a planta não entrega: {brl(fluxo['juros_obra'])} no total "
+        f"(média {brl(fluxo['juros_obra_medio'])} por mês). "
+        f"MCMV e Pró-Cotista usam 0,28% ao mês; SBPE usa 0,43%, sobre o saldo que a Caixa vai liberando. "
+        f"Isso não entra na parcela da construtora."
+    )
 if fluxo["alerta"]:
     st.warning(fluxo["alerta"])
 if fluxo["anos"]:
