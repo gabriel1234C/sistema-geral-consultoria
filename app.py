@@ -388,6 +388,47 @@ if fluxo["anos"]:
         hide_index=True,
     )
 
+st.subheader("Parcelas do começo ao fim")
+st.caption(
+    "Na assinatura sai o ato. Na obra, a construtora cobra a mensal e a Caixa cobra só os juros de obra, "
+    "que sobem conforme o saldo é liberado. Depois das chaves começa a parcela cheia: juros + amortização + R$ 25. "
+    "O seguro MIP quita o contrato em caso de morte ou invalidez. O DFI cobre dano no imóvel. "
+    "Os dois são obrigatórios, mas a alíquota sai no contrato da Caixa e não entra nestes valores."
+)
+fase = st.selectbox(
+    "Mostrar",
+    ["Tudo", "Obra", "Pós-chaves", "Caixa até o fim"],
+)
+linhas = fluxo.get("meses") or []
+if fase == "Obra":
+    linhas = [m for m in linhas if m["fase"] in ("Assinatura", "Obra")]
+elif fase == "Pós-chaves":
+    linhas = [m for m in linhas if m["fase"] == "Pós-chaves"]
+elif fase == "Caixa até o fim":
+    linhas = [m for m in linhas if m["caixa"] > 0 or m["juros_obra"] > 0]
+if linhas:
+    grade = pd.DataFrame(linhas)[["quando", "fase", "construtora", "manual", "juros_obra", "caixa", "total"]]
+    grade = grade.rename(columns={
+        "quando": "Quando",
+        "fase": "Fase",
+        "construtora": "Construtora",
+        "manual": "Manual",
+        "juros_obra": "Juros de obra",
+        "caixa": "Caixa",
+        "total": "Total do mês",
+    })
+    st.dataframe(
+        grade.style.format({
+            c: lambda v: brl(v) for c in ["Construtora", "Manual", "Juros de obra", "Caixa", "Total do mês"]
+        }),
+        use_container_width=True,
+        hide_index=True,
+        height=480,
+    )
+    st.caption(f"{len(linhas)} parcelas nesta visão, da primeira à última.")
+else:
+    st.info("Não há parcelas nesta fase.")
+
 st.subheader("Proposta")
 texto = texto_proposta(sim, fluxo)
 st.text_area("Texto para o WhatsApp", texto, height=280)

@@ -948,6 +948,47 @@ def calcular_fluxo(opts: dict) -> dict:
     for linha in sorted(por_ano.values(), key=lambda r: r["ano"]):
         linha["total"] = round2(linha["ato"] + linha["mensais_obra"] + linha["manual"] + linha["pos_chaves"] + linha["caixa"])
         anos.append(linha)
+    nomes = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
+
+    def quando(add: int) -> str:
+        data = _month_start(inicio, add)
+        return f"{nomes[data.month - 1]}/{data.year}"
+
+    serie = [float(v) for v in (opts.get("parcelas_caixa") or [])]
+    prazo_caixa = len(serie)
+    fim = max(total if divisor else obra, obra + prazo_caixa)
+    meses = []
+    if ato > 0:
+        meses.append({
+            "ordem": 0, "quando": quando(0), "fase": "Assinatura",
+            "construtora": ato, "manual": 0, "juros_obra": 0, "caixa": 0, "total": ato,
+        })
+    for mes in range(1, fim + 1):
+        na_entrada = divisor > 0 and mes <= total
+        construtora = (ultima if mes == divisor else parcela) if na_entrada else 0
+        manual = manual_mes.get(mes, 0) if mes <= obra else 0
+        juros_mes = round2(fin * (mes / obra) * taxa_obra) if mes <= obra and taxa_obra > 0 and fin > 0 else 0
+        idx = mes - obra - 1
+        if 0 <= idx < prazo_caixa:
+            caixa_mes = round2(max(0, serie[idx]))
+        elif idx >= 0 and prazo_caixa == 0 and na_entrada:
+            caixa_mes = caixa
+        else:
+            caixa_mes = 0
+        if mes <= obra:
+            fase = "Obra"
+        elif na_entrada:
+            fase = "Pós-chaves"
+        else:
+            fase = "Financiamento"
+        total_mes = round2(construtora + manual + juros_mes + caixa_mes)
+        if total_mes <= 0:
+            continue
+        meses.append({
+            "ordem": mes, "quando": quando(mes), "fase": fase,
+            "construtora": round2(construtora), "manual": round2(manual),
+            "juros_obra": juros_mes, "caixa": caixa_mes, "total": total_mes,
+        })
     return {
         "sistema": opts["sistema"],
         "valor_unidade": valor,
@@ -970,6 +1011,7 @@ def calcular_fluxo(opts: dict) -> dict:
         "taxa_obra": taxa_obra,
         "manuais": manuais,
         "anos": anos,
+        "meses": meses,
         "alerta": alerta,
     }
 
@@ -990,6 +1032,11 @@ def montar_fluxo(sim: dict, inicio: date | None = None) -> dict:
     manuais = []
     for slot in slots:
         manuais.append({**slot, "valor": float(intake.fluxo_manuais.get(str(slot["ano"]), intake.fluxo_manuais.get(slot["ano"], 0) or 0))})
+    cronograma = resumo.get("cronograma") or []
+    if intake.fluxo_parcela_caixa is None:
+        parcelas_caixa = [float(item["prestacao"]) for item in cronograma]
+    else:
+        parcelas_caixa = [float(intake.fluxo_parcela_caixa)] * len(cronograma)
     return calcular_fluxo({
         "sistema": sistema,
         "valor_unidade": intake.fluxo_valor_unidade if intake.fluxo_valor_unidade is not None else intake.valor_imovel,
@@ -1003,6 +1050,7 @@ def montar_fluxo(sim: dict, inicio: date | None = None) -> dict:
         "parcela_caixa": intake.fluxo_parcela_caixa if intake.fluxo_parcela_caixa is not None else resumo["primeira"],
         "inicio": inicio,
         "taxa_obra": taxa_obra,
+        "parcelas_caixa": parcelas_caixa,
     })
 
 
