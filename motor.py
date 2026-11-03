@@ -1066,9 +1066,6 @@ def texto_proposta(sim: dict, fluxo: dict) -> str:
         f"{TIPO_LABEL.get(intake.tipo_imovel, intake.tipo_imovel)} {intake.objetivo} em {intake.cidade}/{intake.uf}.",
         f"Valor de venda: {brl(enq.valor_base or intake.valor_imovel)}.",
     ]
-    unit = preco_m2(intake.uf, intake.cidade, intake.tipo_imovel)
-    if intake.area_m2 > 0 and unit:
-        linhas.append(f"Área: {intake.area_m2:g} m² · referência {brl(unit)}/m².")
     linhas += [
         f"Linha: {enq.linha or 'a confirmar'}{f' · faixa {enq.faixa_mcmv}' if enq.faixa_mcmv else ''}.",
         f"Taxa: {pct(enq.taxa_anual)} a.a. · prazo {enq.prazo_efetivo_anos} anos.",

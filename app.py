@@ -7,8 +7,6 @@ import pandas as pd
 import streamlit as st
 
 from motor import (
-    AREA_PADRAO,
-    OUTRA_CIDADE,
     TIPO_LABEL,
     UFS,
     Intake,
@@ -19,7 +17,6 @@ from motor import (
     montar_fluxo,
     pct,
     pdf_bytes,
-    preco_m2,
     simular,
     texto_proposta,
     whatsapp_url,
@@ -91,43 +88,14 @@ with i3:
 with i4:
     objetivo = st.selectbox("Imóvel", ["novo", "usado"], format_func=lambda o: "Novo" if o == "novo" else "Usado")
 
-area_sugerida = AREA_PADRAO[tipo]
-a1, a2, a3 = st.columns(3)
-with a1:
-    area = st.number_input("Área (m²)", min_value=0.0, value=float(area_sugerida), step=1.0, key=f"area_{tipo}")
-unit = preco_m2(uf, cidade, tipo)
-if unit is None:
-    st.session_state["seguir_tabela"] = False
-elif "seguir_tabela" not in st.session_state:
-    st.session_state["seguir_tabela"] = True
-with a2:
-    seguir = st.checkbox(
-        "Usar o preço do m² da cidade",
-        disabled=unit is None,
-        key="seguir_tabela",
-        help="Hortolândia, Monte Mor, Sumaré, Piracicaba, Sorocaba, Paulínia, Salto, São José do Rio Preto e Indaiatuba têm tabela.",
-    )
-sugerido = round(unit * area) if unit and area > 0 else None
 if "valor_imovel" not in st.session_state:
-    st.session_state["valor_imovel"] = float(sugerido or 350000)
-if seguir and sugerido:
-    st.session_state["valor_imovel"] = float(sugerido)
-with a3:
-    valor = st.number_input(
-        "Valor do imóvel (R$)",
-        min_value=0.0,
-        step=1000.0,
-        key="valor_imovel",
-        disabled=bool(seguir and sugerido),
-    )
-if unit:
-    st.markdown(
-        f"<div class='aviso'>Referência de anúncio em <b>{cidade}</b>: {brl(unit)}/m² · "
-        f"esta unidade fica em <b>{brl(sugerido or 0)}</b>. Não é o laudo da Caixa.</div>",
-        unsafe_allow_html=True,
-    )
-elif cidade != OUTRA_CIDADE:
-    st.caption("Esta cidade ainda não tem tabela de m². Digite o valor do imóvel.")
+    st.session_state["valor_imovel"] = 350000.0
+valor = st.number_input(
+    "Valor do imóvel (R$)",
+    min_value=0.0,
+    step=1000.0,
+    key="valor_imovel",
+)
 
 st.subheader("Comprador e crédito")
 b1, b2, b3, b4 = st.columns(4)
@@ -196,7 +164,7 @@ intake = Intake(
     tipo_imovel=tipo,
     uf=uf,
     cidade=cidade,
-    area_m2=area,
+    area_m2=0,
     valor_imovel=float(valor),
     objetivo=objetivo,
     renda=float(renda),
