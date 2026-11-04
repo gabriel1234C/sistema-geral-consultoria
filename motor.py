@@ -900,7 +900,7 @@ def calcular_fluxo(opts: dict) -> dict:
     divisor = total if pos >= 0 else 0
     restante_bruto = round2(fluxo - ato - soma_manuais)
     if restante_bruto < -0.009 and not alerta:
-        alerta = "Ato e manuais passam do fluxo de entrada."
+        alerta = "Ato e anuais passam do fluxo de entrada."
     restante = round2(max(0, restante_bruto))
     parcela = round2(restante / divisor) if divisor else 0
     ultima = round2(restante - parcela * (divisor - 1)) if divisor else 0
@@ -1088,7 +1088,8 @@ def texto_proposta(sim: dict, fluxo: dict) -> str:
         "",
         "Fluxo da construtora",
         f"Entrada a diluir: {brl(fluxo['fluxo_entrada'])}.",
-        f"Ato {brl(fluxo['ato'])}. Obra: {fluxo['meses_obra']} meses de {brl(fluxo['parcela_mensal'])}.",
+        f"Ato {brl(fluxo['ato'])}. Obra: {fluxo['meses_obra']} meses de {brl(fluxo['parcela_mensal'])}"
+        + (f". Anuais {brl(fluxo['soma_manuais'])}." if fluxo["soma_manuais"] else "."),
         f"Pós-chaves: {fluxo['meses_pos']} meses. Morando: {brl(fluxo['parcela_morando'])} (entrada + Caixa {brl(fluxo['parcela_caixa'])}).",
     ]
     if fluxo.get("juros_obra", 0) > 0:

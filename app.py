@@ -301,12 +301,12 @@ inicio = date.today().replace(day=1)
 slots = manuais_no_prazo(inicio, int(meses_obra))
 manuais = {}
 if slots:
-    st.markdown("**Manuais de dezembro, durante a obra**")
+    st.markdown("**Anuais de dezembro, durante a obra**")
     cols = st.columns(min(4, len(slots)))
     for i, slot in enumerate(slots):
         with cols[i % len(cols)]:
             manuais[str(slot["ano"])] = st.number_input(
-                f"Manual dez/{slot['ano']}",
+                f"Anual dez/{slot['ano']}",
                 min_value=0.0,
                 value=0.0,
                 step=500.0,
@@ -323,7 +323,7 @@ k4.metric("Parcela morando", brl(fluxo["parcela_morando"]))
 st.write(
     f"Unidade {brl(fluxo['valor_unidade'])} − financiamento {brl(fluxo['financiamento'])} − "
     f"FGTS {brl(fluxo['fgts'])} − subsídio {brl(fluxo['subsidio'])}. "
-    f"Ato {brl(fluxo['ato'])}. Manuais {brl(fluxo['soma_manuais'])}. "
+    f"Ato {brl(fluxo['ato'])}. Anuais {brl(fluxo['soma_manuais'])}. "
     f"A parcela da Caixa ({brl(fluxo['parcela_caixa'])}) só entra depois das chaves."
 )
 if fluxo.get("juros_obra", 0) > 0:
@@ -342,14 +342,14 @@ if fluxo["anos"]:
         "ato": "Ato",
         "mensais_obra": "Mensais da obra",
         "qtd_obra": "Qtd obra",
-        "manual": "Manual",
+        "manual": "Anual",
         "pos_chaves": "Pós-chaves",
         "qtd_pos": "Qtd pós",
         "caixa": "Caixa",
         "qtd_caixa": "Qtd Caixa",
         "total": "Total no ano",
     })
-    money_cols = ["Ato", "Mensais da obra", "Manual", "Pós-chaves", "Caixa", "Total no ano"]
+    money_cols = ["Ato", "Mensais da obra", "Anual", "Pós-chaves", "Caixa", "Total no ano"]
     st.dataframe(
         tabela.style.format({c: lambda v: brl(v) for c in money_cols}),
         use_container_width=True,
@@ -380,14 +380,14 @@ if linhas:
         "quando": "Quando",
         "fase": "Fase",
         "construtora": "Construtora",
-        "manual": "Manual",
+        "manual": "Anual",
         "juros_obra": "Juros de obra",
         "caixa": "Caixa",
         "total": "Total do mês",
     })
     st.dataframe(
         grade.style.format({
-            c: lambda v: brl(v) for c in ["Construtora", "Manual", "Juros de obra", "Caixa", "Total do mês"]
+            c: lambda v: brl(v) for c in ["Construtora", "Anual", "Juros de obra", "Caixa", "Total do mês"]
         }),
         use_container_width=True,
         hide_index=True,
